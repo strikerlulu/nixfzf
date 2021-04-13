@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+# A faster way to go through nixpkgs & install them!
+
+[[ "$1" == "-u" ]] && {
+	echo "Updating cache..."
+	nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- >~/.cache/nixfzf && shift
+}
+
+test -e ~/.cache/nixfzf || {
+	echo "Let me cache it first..."
+	nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- >~/.cache/nixfzf
+}
+
+cat ~/.cache/nixfzf | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
+
+echo "$(
+	echo -e ' Select packages to install\n (use TAB to toggle selection)'
+	cat /tmp/packages
+)" >/tmp/packages
+cat /tmp/packages |
+	fzf -q "$1" -e -m \
+		--preview='bat --style=numbers --color=always --line-range :500 $(nix eval --raw nixpkgs#{1}.meta.position | cut -d: -f1)' \
+		--preview-window=65%:wrap \
+		--layout=reverse \
+		--marker='>>' \
+		--header-lines=2 \
+		--info=hidden \
+		--ansi \
+		--margin="2%,1%,2%,1%" \
+		--cycle |
+	sed -e 's/[[:space:]]\*$//' |
+	xargs -roIX nix-env -iA nixos.X
