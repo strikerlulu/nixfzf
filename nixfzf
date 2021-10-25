@@ -2,17 +2,15 @@
 
 # A faster way to go through nixpkgs & install them!
 
-[[ "$1" == "-u" ]] && {
-	echo "Updating cache..."
-	nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- >~/.cache/nixfzf && shift
-}
-
-test -e ~/.cache/nixfzf || {
-	echo "Let me cache it first..."
-	nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- >~/.cache/nixfzf
+[[ $1 == "-u" ||  ! -e ~/.cache/nixfzf ]] && {
+	echo "Caching..."
+	nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- | sort | uniq >~/.cache/nixfzf && shift
 }
 
 cat ~/.cache/nixfzf | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
+
+# wanna use flake instead ?
+# nix search nixpkgs --json | jq --raw-output 'keys | .[]' | cut -d. -f 3- | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
 
 echo "$(
 	echo -e ' Select packages to install\n (use TAB to toggle selection)'
@@ -28,6 +26,8 @@ cat /tmp/packages |
 		--info=hidden \
 		--ansi \
 		--margin="2%,1%,2%,1%" \
-		--cycle |
-	sed -e 's/[[:space:]]\*$//' |
-	xargs -roIX nix-env -iA nixos.X
+		--cycle | sed -e 's/[[:space:]]\*$//' | xargs -roIX nix-env -iA nixos.X
+
+# if you want to open it in your editor of choice
+#--bind='ctrl-l:execute(EDITOR=emacsclient nix edit nixpkgs#{1})' \
+
