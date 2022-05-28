@@ -2,23 +2,48 @@
 
 # A faster way to go through nixpkgs & install them!
 
-[[ $1 == "-u" ||  ! -e ~/.cache/nixfzf ]] && {
-	echo "Caching..."
+[[ $1 == "-u" && $2 != "-o" || ! -e ~/.cache/nixfzf ]] && {
+	echo "Caching packages..."
 	nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- | sort | uniq >~/.cache/nixfzf && shift
 }
 
-cat ~/.cache/nixfzf | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
+[[ $1 == "-u" && $2 == "-o" || ! -e ~/.cache/nixfzf-options ]] && {
+	echo "Caching options..."
+	options="$(NIXPKGS_ALLOW_UNFREE=1 nix-build -Q --no-out-link '<nixpkgs/nixos/release.nix>' -A options)/share/doc/nixos/options.json"
+	cp "$options" ~/.cache/nixfzf-options && shift
+}
 
-# wanna use flake instead ?
-# nix search nixpkgs --json | jq --raw-output 'keys | .[]' | cut -d. -f 3- | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
-
-echo "$(
-	echo -e ' Select packages to install\n (use TAB to toggle selection)'
-	cat /tmp/packages
-)" >/tmp/packages
-cat /tmp/packages |
-	fzf -q "$1" -e -m \
-		--preview='bat --style=numbers --color=always --line-range :500 $(nix eval --raw nixpkgs#{1}.meta.position | cut -d: -f1)' \
+# show options
+[[ $1 == "-o" ]] && {
+	shift
+    command -v gojq >/dev/null 2>&1 || { echo >&2 "You need gojq for options preview"; }
+	jq 'keys | .[]' -r ~/.cache/nixfzf-options | tail -n +2 >/tmp/options
+	echo "$(
+		echo -e ' Select packages to install\n (use TAB to toggle selection)'
+		cat /tmp/options
+	)" >/tmp/options
+    # used gojq for simplicity, might change later
+	cat /tmp/options | fzf -q "$1" -e -m \
+		--preview="cat ~/.cache/nixfzf-options | gojq -r  '.[\"{1}\"]' --yaml-output | bat --language=yaml --style=numbers --color=always" \
+		--preview-window=up,wrap,wrap,border-horizontal \
+		--layout=reverse \
+		--marker='>>' \
+		--header-lines=2 \
+		--info=hidden \
+		--ansi \
+		--margin="2%,1%,2%,1%" \
+		--cycle
+	exit
+} || {
+	cat ~/.cache/nixfzf | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
+	# wanna use flake instead ?
+	# nix search nixpkgs --json | jq --raw-output 'keys | .[]' | cut -d. -f 3- | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
+	echo "$(
+		echo -e ' Select packages to install\n (use TAB to toggle selection)'
+		cat /tmp/packages
+	)" >/tmp/packages
+	cat /tmp/packages | fzf -q "$1" -e -m \
+		--preview='bat --style=numbers --color=always --line-range :500 $(nix eval --raw nixpkgs-unstable#{1}.meta.position | cut -d: -f1)' \
 		--preview-window=65%:wrap \
 		--layout=reverse \
 		--marker='>>' \
@@ -27,7 +52,6 @@ cat /tmp/packages |
 		--ansi \
 		--margin="2%,1%,2%,1%" \
 		--cycle | sed -e 's/[[:space:]]\*$//' | xargs -roIX nix-env -iA nixos.X
-
+}
 # if you want to open it in your editor of choice
 #--bind='ctrl-l:execute(EDITOR=emacsclient nix edit nixpkgs#{1})' \
-
