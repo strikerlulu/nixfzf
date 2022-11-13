@@ -1,40 +1,109 @@
 #!/usr/bin/env bash
 
-# A faster way to go through nixpkgs & install them!
+set -o errexit
+set -o pipefail
 
-[[ $1 == "-u" && $2 != "-o" || ! -e ~/.cache/nixfzf ]] && {
-	echo "Caching packages..."
-	nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- | sort | uniq >~/.cache/nixfzf && shift
+if [[ "${1-}" =~ ^-*h(elp)?$ ]]; then
+	echo 'A faster way to go through nixpkgs & install them,browse nixos options & home-manager options,
+Usage: nixfzf [options] package/option
+
+Options:
+ -o		show nixos options
+ -m		show home-manager options
+ -n		show nixpkgs(default)
+ -u -o		update nixos options
+ -u -m		update home-manager options
+ -u -n		update nixpkgs
+ -h		help
+'
+	exit
+fi
+
+command -v jq >/dev/null 2>&1 || command -v bat >/dev/null 2>&1 || {
+	echo >&2 "You need jq and bat!"
+	exit
 }
 
-[[ $1 == "-u" && $2 == "-o" || ! -e ~/.cache/nixfzf-options ]] && {
-	echo "Caching options..."
-	options="$(NIXPKGS_ALLOW_UNFREE=1 nix-build -Q --no-out-link '<nixpkgs/nixos/release.nix>' -A options)/share/doc/nixos/options.json"
-	cp "$options" ~/.cache/nixfzf-options && shift
-}
-
-# show options
-[[ $1 == "-o" ]] && {
+[[ $1 == "-u" ]] && {
 	shift
-    command -v gojq >/dev/null 2>&1 || { echo >&2 "You need gojq for options preview"; }
-	jq 'keys | .[]' -r ~/.cache/nixfzf-options | tail -n +2 >/tmp/options
-	echo "$(
-		echo -e ' Select packages to install\n (use TAB to toggle selection)'
-		cat /tmp/options
-	)" >/tmp/options
-    # used gojq for simplicity, might change later
-	cat /tmp/options | fzf -q "$1" -e -m \
-		--preview="cat ~/.cache/nixfzf-options | gojq -r  '.[\"{1}\"]' --yaml-output | bat --language=yaml --style=numbers --color=always" \
+	[[ $1 == "-n" || ! -e ~/.cache/nixfzf ]] && {
+		echo "Caching nixpkgs..."
+		nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- | sort | uniq >~/.cache/nixfzf
+	}
+	[[ $1 == "-o" || ! -e ~/.cache/nixfzf-options ]] && {
+		echo "Caching nixos options..."
+		options="$(NIXPKGS_ALLOW_UNFREE=1 nix-build -Q --no-out-link '<nixpkgs/nixos/release.nix>' -A options)/share/doc/nixos/options.json"
+		cp "$options" ~/.cache/nixfzf-options
+	}
+	[[ $1 == "-m" || ! -e ~/.cache/nixfzf-options ]] && {
+		echo "Caching home-manager options..."
+		options_url="https://raw.githubusercontent.com/mipmip/home-manager-option-search/main/data/options.json"
+		curl -s "$options_url" | jq '.options' | sed 's/&lt;/</g;s/&gt;/>/g' > ~/.cache/hm-options
+	}
+	exit
+}
+
+# show home-manager options
+[[ $1 == "-m" ]] && {
+	shift
+	command -v yq >/dev/null 2>&1 || command -v gojq >/dev/null 2>&1 || {
+		echo >&2 "You need yq or gojq for options preview"
+		exit
+	}
+	jq '.[].title' -r ~/.cache/hm-options >/tmp/hm-options
+	printArg() {
+		command -v yq >/dev/null 2>&1 && {
+			view=$(cat $HOME/.cache/hm-options | yq -P ".[] | select(.title==\"$1\")" | bat --language=yaml --style=numbers --color=always)
+		}
+		command -v gojq >/dev/null 2>&1 && {
+			view=$(cat $HOME/.cache/hm-options | gojq ".[] | select(.title==\"$1\")" --yaml-output | bat --language=yaml --style=numbers --color=always)
+		}
+		echo "$view"
+	}
+	# as exporting funtion doesn't work in zsh and fzf use $SHELL by defualt
+	SHELL=bash
+	export -f printArg
+	cat /tmp/hm-options | fzf -q "$1" -e -m \
+		--preview="printArg {1}" \
 		--preview-window=up,wrap,wrap,border-horizontal \
 		--layout=reverse \
-		--marker='>>' \
-		--header-lines=2 \
 		--info=hidden \
 		--ansi \
 		--margin="2%,1%,2%,1%" \
 		--cycle
 	exit
+}
+# show options
+[[ $1 == "-o" ]] && {
+	shift
+	command -v yq >/dev/null 2>&1 || command -v gojq >/dev/null 2>&1 || {
+		echo >&2 "You need yq or gojq for options preview"
+		exit
+	}
+	jq 'keys | .[]' -r ~/.cache/nixfzf-options | tail -n +2 >/tmp/options
+	printArg() {
+		command -v yq >/dev/null 2>&1 && {
+			view=$(cat $HOME/.cache/nixfzf-options | yq -P ".\"$1\"" | bat --language=yaml --style=numbers --color=always)
+		}
+		command -v gojq >/dev/null 2>&1 && {
+			view=$(cat $HOME/.cache/nixfzf-options | gojq ".\"$1\"" --yaml-output | bat --language=yaml --style=numbers --color=always)
+		}
+		echo "$view"
+	}
+	SHELL=/usr/bin/bash
+	export -f printArg
+	cat /tmp/options | fzf -q "$1" -e -m \
+		--preview "printArg {1}" \
+		--preview-window=up,wrap,wrap,border-horizontal \
+		--layout=reverse \
+		--info=hidden \
+		--ansi \
+		--margin="2%,1%,2%,1%" \
+		--cycle
+
+	exit
 } || {
+	[[ $1 == "-n" ]] && shift
 	cat ~/.cache/nixfzf | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
 	# wanna use flake instead ?
 	# nix search nixpkgs --json | jq --raw-output 'keys | .[]' | cut -d. -f 3- | awk '{print $0" \033[32m*\033[0m"}' >/tmp/packages
@@ -43,7 +112,7 @@
 		cat /tmp/packages
 	)" >/tmp/packages
 	cat /tmp/packages | fzf -q "$1" -e -m \
-		--preview='bat --style=numbers --color=always --line-range :500 $(nix eval --raw nixpkgs-unstable#{1}.meta.position | cut -d: -f1)' \
+		--preview='bat --style=numbers --color=always --line-range :500 $(nix eval --raw nixpkgs#{1}.meta.position | cut -d: -f1)' \
 		--preview-window=65%:wrap \
 		--layout=reverse \
 		--marker='>>' \
@@ -51,7 +120,11 @@
 		--info=hidden \
 		--ansi \
 		--margin="2%,1%,2%,1%" \
-		--cycle | sed -e 's/[[:space:]]\*$//' | xargs -roIX nix-env -iA nixos.X
+		--cycle | sed -e 's/[[:space:]]\*$//' | xargs -roIX nix-env -iA nixpkgs.X
 }
+
 # if you want to open it in your editor of choice
-#--bind='ctrl-l:execute(EDITOR=emacsclient nix edit nixpkgs#{1})' \
+# --bind='ctrl-l:execute(EDITOR=emacsclient nix edit nixpkgs#{1})' \
+
+# Shift+up/down is the default for scrolling
+# --bind Alt-k:preview-up,Alt-j:preview-down

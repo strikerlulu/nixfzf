@@ -1,8 +1,18 @@
 # nixfzf
 
-A small fzf wrapper for nix (for faster browsing and installing of nixpkgs)
+```
+A faster way to go through nixpkgs & install them,browse nixos options & home-manager options,
+Usage: nixfzf [options] package/option
 
-You can also browse/view nixos options with `./nixfzf -o`
+Options:
+ -o             show nixos options
+ -m             show home-manager options
+ -n             show nixpkgs(default)
+ -u -o          update nixos options
+ -u -m          update home-manager options
+ -u -n          update nixpkgs
+ -h             help
+```
 
 # Install
 
@@ -16,5 +26,5 @@ chmod +x nixfzf
 
 ![AdguardHome](./shots/1.png?raw=true)
 ![Vscode extensions](./shots/2.png?raw=true)
-Options preview requires `gojq`
+Options preview requires `yq` or `gojq`
 ![AdguardHome Options](./shots/3.png?raw=true)
