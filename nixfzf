@@ -35,13 +35,39 @@ command -v jq >/dev/null 2>&1 || command -v bat >/dev/null 2>&1 || {
 		options="$(NIXPKGS_ALLOW_UNFREE=1 nix-build -Q --no-out-link '<nixpkgs/nixos/release.nix>' -A options)/share/doc/nixos/options.json"
 		cp "$options" ~/.cache/nixfzf-options
 	}
-	[[ $1 == "-m" || ! -e ~/.cache/nixfzf-options ]] && {
+	[[ $1 == "-m" || ! -e ~/.cache/hm-options ]] && {
 		echo "Caching home-manager options..."
 		options_url="https://raw.githubusercontent.com/mipmip/home-manager-option-search/main/data/options.json"
 		curl -s "$options_url" | jq '.options' | sed 's/&lt;/</g;s/&gt;/>/g' > ~/.cache/hm-options
 	}
 	exit
 }
+
+# ensure ~/.cache exists
+mkdir -p ~/.cache
+
+# auto-cache missing files when not explicitly updating
+if [[ "${1-}" != "-u" ]]; then
+	if [[ $1 == "-m" ]]; then
+		[[ ! -e ~/.cache/hm-options ]] && {
+			echo "Caching home-manager options..."
+			options_url="https://raw.githubusercontent.com/mipmip/home-manager-option-search/main/data/options.json"
+			curl -s "$options_url" | jq '.options' | sed 's/&lt;/</g;s/&gt;/>/g' > ~/.cache/hm-options
+		}
+	elif [[ $1 == "-o" ]]; then
+		[[ ! -e ~/.cache/nixfzf-options ]] && {
+			echo "Caching nixos options..."
+			options="$(NIXPKGS_ALLOW_UNFREE=1 nix-build -Q --no-out-link '<nixpkgs/nixos/release.nix>' -A options)/share/doc/nixos/options.json"
+			cp "$options" ~/.cache/nixfzf-options
+		}
+	else
+		[[ ! -e ~/.cache/nixfzf ]] && {
+			echo "Caching nixpkgs..."
+			nix-env -qa --json | jq --raw-output 'keys | .[]' | cut -d. -f 2- | sort | uniq >~/.cache/nixfzf
+		}
+	fi
+fi
+
 
 # show home-manager options
 [[ $1 == "-m" ]] && {
@@ -61,7 +87,7 @@ command -v jq >/dev/null 2>&1 || command -v bat >/dev/null 2>&1 || {
 		echo "$view"
 	}
 	# as exporting funtion doesn't work in zsh and fzf use $SHELL by defualt
-	SHELL=bash
+	SHELL="$(command -v bash || command -v sh || echo /bin/sh)"
 	export -f printArg
 	cat /tmp/hm-options | fzf -q "$1" -e -m \
 		--preview="printArg {1}" \
@@ -90,7 +116,7 @@ command -v jq >/dev/null 2>&1 || command -v bat >/dev/null 2>&1 || {
 		}
 		echo "$view"
 	}
-	SHELL=/usr/bin/bash
+	SHELL="$(command -v bash || command -v sh || echo /bin/sh)"
 	export -f printArg
 	cat /tmp/options | fzf -q "$1" -e -m \
 		--preview "printArg {1}" \
